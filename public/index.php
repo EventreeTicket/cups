@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-const CUP_TAG_PREFIX = '434850CCCCCC';
 const DEPOSIT_PER_CUP_CENTS = 250;
 
 header('Content-Type: application/json; charset=utf-8');
@@ -106,21 +105,8 @@ function createScanBatch(PDO $db, string $direction): never
         return trim($tag);
     }, $tags)));
 
-    $ignoredTags = array_values(array_filter($tags, static fn (string $tag): bool => !str_starts_with($tag, CUP_TAG_PREFIX)));
-    $tags = array_values(array_filter($tags, static fn (string $tag): bool => str_starts_with($tag, CUP_TAG_PREFIX)));
-
     $requestId = optionalText($payload['request_id'] ?? null, 'request_id');
     $source = optionalText($payload['source'] ?? null, 'source');
-
-    if ($tags === []) {
-        respond([
-            'batch_id' => null,
-            'direction' => strtolower($direction),
-            'processed_tags' => 0,
-            'tags' => [],
-            'ignored_tags' => $ignoredTags,
-        ]);
-    }
 
     if ($requestId !== null) {
         $existing = $db->prepare('SELECT response_json FROM scan_batches WHERE request_id = :request_id');
@@ -182,7 +168,6 @@ function createScanBatch(PDO $db, string $direction): never
             'scanned_at' => $scannedAt,
             'processed_tags' => count($tags),
             'tags' => $tags,
-            'ignored_tags' => $ignoredTags,
         ];
         $saveResponse = $db->prepare('UPDATE scan_batches SET response_json = :response WHERE id = :id');
         $saveResponse->execute(['response' => json_encode($response, JSON_THROW_ON_ERROR), 'id' => $batchId]);

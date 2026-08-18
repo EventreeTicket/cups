@@ -42,7 +42,6 @@ import java.util.concurrent.Executors;
 /** Eénmalige UHF-inventarisatie en verzending als batch naar de lokale API. */
 public final class MainActivity extends Activity {
     private static final String LOG_TAG = "HardcupsRFID";
-    private static final String CUP_TAG_PREFIX = "434850CCCCCC";
     // De Sunmi-documentatie noemt ongeveer 30-50 ms per inventarisatieronde.
     // Veertig rondes geven in de praktijk ongeveer twee seconden leestijd.
     private static final byte INVENTORY_ROUNDS = 0x28;
@@ -91,10 +90,6 @@ public final class MainActivity extends Activity {
         private void addTag(String epc) {
             Log.d(LOG_TAG, "RFID tag epc=" + epc);
             if (epc == null || epc.trim().isEmpty()) return;
-            if (!epc.trim().startsWith(CUP_TAG_PREFIX)) {
-                Log.d(LOG_TAG, "Ignoring non-hardcup RFID tag=" + epc);
-                return;
-            }
             synchronized (tags) {
                 tags.add(epc.trim());
             }
