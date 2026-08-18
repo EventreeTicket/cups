@@ -1,0 +1,6 @@
+RewriteEngine On
+
+# Laat bestaande bestanden (zoals test.html) met rust; stuur API-routes naar index.php.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
