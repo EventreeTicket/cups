@@ -26,7 +26,8 @@ declare(strict_types=1);
       <h2>Endpoints</h2>
       <div class="route"><span class="method">POST</span><code>/api/scans/in</code><span>Registreer één of meer bekers als uitgegeven.</span></div>
       <div class="route"><span class="method">POST</span><code>/api/scans/out</code><span>Registreer één of meer bekers als ingenomen.</span></div>
-      <div class="route"><span class="method get">GET</span><code>/api/cups</code><span>Haal de actuele status van alle bekende tags op.</span></div>
+      <div class="route"><span class="method get">GET</span><code>/api/cups</code><span>Haal alle momenteel uitgegeven bekers op.</span></div>
+      <div class="route"><span class="method get">GET</span><code>/api/history</code><span>Haal alle gelezen tags en scanacties op.</span></div>
       <div class="route"><span class="method get">GET</span><code>/api/cups/{tag}</code><span>Haal één beker plus de volledige scanhistorie op.</span></div>
       <div class="route"><span class="method get">GET</span><code>/health</code><span>Eenvoudige beschikbaarheidscheck.</span></div>
     </section>

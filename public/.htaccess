@@ -3,6 +3,7 @@ DirectoryIndex test.php
 
 # Gebruik een nette URL voor de live testpagina.
 RewriteRule ^test/?$ test.php [L]
+RewriteRule ^history/?$ history.php [L]
 
 # Laat bestaande bestanden (zoals test.html) met rust; stuur API-routes naar index.php.
 RewriteCond %{REQUEST_FILENAME} !-f

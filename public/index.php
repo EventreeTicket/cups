@@ -38,6 +38,10 @@ try {
         listCups($db);
     }
 
+    if ($method === 'GET' && $path === '/api/history') {
+        listHistory($db);
+    }
+
     if ($method === 'GET' && preg_match('#^/api/cups/(.+)$#', $path, $matches)) {
         showCup($db, urldecode($matches[1]));
     }
@@ -192,6 +196,22 @@ function listCups(PDO $db): never
         'deposit_per_cup_cents' => DEPOSIT_PER_CUP_CENTS,
         'deposit_outstanding_cents' => $issuedCount * DEPOSIT_PER_CUP_CENTS,
         'cups' => $rows,
+    ]);
+}
+
+function listHistory(PDO $db): never
+{
+    $events = $db->query(
+        'SELECT id, batch_id, tag, direction, source, scanned_at
+         FROM scan_events
+         ORDER BY id DESC'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $uniqueTags = (int) $db->query('SELECT COUNT(DISTINCT tag) FROM scan_events')->fetchColumn();
+
+    respond([
+        'event_count' => count($events),
+        'unique_tag_count' => $uniqueTags,
+        'events' => $events,
     ]);
 }
 

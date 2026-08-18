@@ -13,6 +13,10 @@ if (PHP_SAPI === 'cli-server') {
         require __DIR__ . '/public/api.php';
         exit;
     }
+    if ($path === '/history') {
+        require __DIR__ . '/public/history.php';
+        exit;
+    }
 
     $file = __DIR__ . '/public' . $path;
     if (is_file($file)) {

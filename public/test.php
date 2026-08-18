@@ -13,7 +13,7 @@ declare(strict_types=1);
 <body class="dashboard-page">
   <main>
     <h1>RFID hardcups</h1>
-    <p class="intro">Live-overzicht van uitgegeven hardcups. <a href="/api.php">Bekijk API-specificatie</a>.</p>
+    <p class="intro">Live-overzicht van uitgegeven hardcups. <a href="/history.php">Bekijk alle scan-historie</a> · <a href="/api.php">Bekijk API-specificatie</a>.</p>
 
     <div class="metrics" aria-label="Actuele statiegeldstand">
       <div class="metric"><span>Uitgegeven bekers</span><strong id="issued-count">–</strong></div>

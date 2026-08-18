@@ -13,7 +13,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
-import android.widget.Space;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.sunmi.rfid.RFIDHelper;
@@ -43,16 +43,19 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private static final String LOG_TAG = "HardcupsRFID";
     // De Sunmi-documentatie noemt ongeveer 30-50 ms per inventarisatieronde.
-    // Veertig rondes geven in de praktijk ongeveer twee seconden leestijd.
-    private static final byte INVENTORY_ROUNDS = 0x28;
+    // 125 rondes geven in de praktijk ongeveer vier seconden leestijd.
+    private static final byte INVENTORY_ROUNDS = 0x7D;
+    private static final long UPLOAD_START_DELAY_MS = 5_000;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Set<String> tags = new LinkedHashSet<>();
     private final Handler scanTimer = new Handler(Looper.getMainLooper());
     private final Handler presentationTimer = new Handler(Looper.getMainLooper());
 
     private TextView status;
+    private TextView liveTagsEmpty;
     private Button scanButton;
     private RadioGroup direction;
+    private LinearLayout liveTags;
     private RFIDHelper rfid;
     private boolean scanRunning;
     private boolean scanActive;
@@ -90,10 +93,17 @@ public final class MainActivity extends Activity {
         private void addTag(String epc) {
             Log.d(LOG_TAG, "RFID tag epc=" + epc);
             if (epc == null || epc.trim().isEmpty()) return;
+            String trimmedEpc = epc.trim();
+            int tagCount;
             synchronized (tags) {
-                tags.add(epc.trim());
+                if (!tags.add(trimmedEpc)) return;
+                tagCount = tags.size();
             }
-            runOnUiThread(() -> setStatus(tags.size() + " tag(s) gevonden…", false));
+            int count = tagCount;
+            runOnUiThread(() -> {
+                addLiveTag(trimmedEpc);
+                setStatus(count + " tag(s) gevonden…", false);
+            });
         }
 
         @Override public void onFailed(byte command, byte errorCode, String message) {
@@ -207,8 +217,21 @@ public final class MainActivity extends Activity {
         status.setGravity(Gravity.CENTER_HORIZONTAL);
         layout.addView(status);
 
-        Space spacer = new Space(this);
-        layout.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1));
+        TextView liveTitle = new TextView(this);
+        liveTitle.setText("Live gescande tags");
+        liveTitle.setTextSize(16);
+        liveTitle.setPadding(0, dp(28), 0, dp(8));
+        layout.addView(liveTitle);
+
+        ScrollView liveTagsScroll = new ScrollView(this);
+        liveTags = new LinearLayout(this);
+        liveTags.setOrientation(LinearLayout.VERTICAL);
+        liveTagsEmpty = new TextView(this);
+        liveTagsEmpty.setText("Nog geen tags gescand.");
+        liveTagsEmpty.setTextColor(Color.rgb(120, 135, 126));
+        liveTags.addView(liveTagsEmpty);
+        liveTagsScroll.addView(liveTags);
+        layout.addView(liveTagsScroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         return layout;
     }
@@ -219,6 +242,7 @@ public final class MainActivity extends Activity {
             return;
         }
         tags.clear();
+        clearLiveTags();
         scanRunning = true;
         scanActive = true;
         inventoryCompleted = false;
@@ -228,10 +252,10 @@ public final class MainActivity extends Activity {
         scanButton.setEnabled(false);
         setStatus("RFID-tags zoeken…", false);
         try {
-            // Eén korte inventarisatieronde; EPC's worden daarna uit de buffer opgehaald.
+            // Vier seconden inventariseren; EPC's worden daarna uit de buffer opgehaald.
             rfid.inventory(INVENTORY_ROUNDS);
-            Log.d(LOG_TAG, "Starting buffered inventory for about two seconds");
-            presentationTimer.postDelayed(this::beginUpload, 2_000);
+            Log.d(LOG_TAG, "Starting buffered inventory for about four seconds");
+            presentationTimer.postDelayed(this::beginUpload, UPLOAD_START_DELAY_MS);
             scanTimer.postDelayed(this::finishScan, 6_000);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID scan", error);
@@ -267,6 +291,31 @@ public final class MainActivity extends Activity {
         if (!scanActive || !readerCompleted || !uploadStarted || uploadRunning) return;
         scanActive = false;
         scanButton.setEnabled(rfid != null);
+    }
+
+    private void clearLiveTags() {
+        liveTags.removeAllViews();
+        liveTagsEmpty = new TextView(this);
+        liveTagsEmpty.setText("Tags worden tijdens het scannen hier getoond.");
+        liveTagsEmpty.setTextColor(Color.rgb(120, 135, 126));
+        liveTags.addView(liveTagsEmpty);
+    }
+
+    private void addLiveTag(String epc) {
+        if (liveTagsEmpty != null) {
+            liveTags.removeView(liveTagsEmpty);
+            liveTagsEmpty = null;
+        }
+        TextView tag = new TextView(this);
+        tag.setText(epc);
+        tag.setTextSize(14);
+        tag.setTextColor(Color.rgb(217, 255, 230));
+        tag.setTypeface(android.graphics.Typeface.MONOSPACE);
+        tag.setPadding(dp(12), dp(10), dp(12), dp(10));
+        tag.setBackgroundColor(Color.rgb(23, 34, 32));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, 0, 0, dp(6));
+        liveTags.addView(tag, params);
     }
 
     private void failScan(String message) {

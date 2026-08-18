@@ -60,6 +60,8 @@ button:disabled { opacity: .55; cursor: wait; }
 #message { min-height: 24px; margin: 16px 0 0; color: #b9c9bd; }
 #message.error { color: #ffaea4; }
 #message.ok { color: #a7f3bf; }
+#history-message { min-height: 24px; margin: 16px 0 0; color: #b9c9bd; }
+#history-message.error { color: #ffaea4; }
 
 #cups { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 8px; }
 #cups li { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 12px; border-radius: 9px; background: #0e1513; }
@@ -80,6 +82,8 @@ th, td { text-align: left; padding: 11px 8px; border-bottom: 1px solid #31443c; 
 th { color: #a7f3bf; }
 td { color: #c2d0c6; }
 .note { border-left: 3px solid #a7f3bf; padding-left: 14px; }
+.table-wrap { overflow-x: auto; }
+.history-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 
 @media (max-width: 620px) {
   .heading, .top { align-items: flex-start; flex-direction: column; }
