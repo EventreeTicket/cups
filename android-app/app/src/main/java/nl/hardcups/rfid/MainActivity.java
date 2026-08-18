@@ -68,6 +68,7 @@ public final class MainActivity extends Activity {
     private RadioGroup direction;
     private LinearLayout liveTags;
     private RFIDHelper rfid;
+    private byte realtimeRepeat = REALTIME_REPEAT;
     private boolean scanRunning;
     private boolean scanActive;
     private boolean inventoryCompleted;
@@ -157,8 +158,9 @@ public final class MainActivity extends Activity {
             rfid = RFIDManager.getInstance().getHelper();
             try {
                 int scanModel = rfid.getScanModel();
-                Log.i(LOG_TAG, "Connected RFID scan model=" + scanModel + " repeat=" + REALTIME_REPEAT);
-                debug("reader_connected", "model=" + scanModel + " repeat=" + REALTIME_REPEAT);
+                realtimeRepeat = repeatForScanModel(scanModel);
+                Log.i(LOG_TAG, "Connected RFID scan model=" + scanModel + " repeat=" + realtimeRepeat);
+                debug("reader_connected", "model=" + scanModel + " repeat=" + realtimeRepeat);
                 rfid.registerReaderCall(readerCall);
                 runOnUiThread(() -> {
                     scanButton.setEnabled(true);
@@ -321,9 +323,9 @@ public final class MainActivity extends Activity {
     private void startRealtimeInventory() {
         if (!scanRunning || rfid == null) return;
         try {
-            rfid.realTimeInventory(REALTIME_REPEAT);
-            Log.d(LOG_TAG, "Starting realtime RFID inventory pass; repeat=" + REALTIME_REPEAT);
-            debug("realtime_inventory_started", "repeat=" + REALTIME_REPEAT);
+            rfid.realTimeInventory(realtimeRepeat);
+            Log.d(LOG_TAG, "Starting realtime RFID inventory pass; repeat=" + realtimeRepeat);
+            debug("realtime_inventory_started", "repeat=" + realtimeRepeat);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID inventory", error);
             debug("scan_start_failed", error.toString());
@@ -490,6 +492,14 @@ public final class MainActivity extends Activity {
             default: description = "Onbekende RFID-fout"; break;
         }
         return String.format(java.util.Locale.ROOT, "RFID-fout 0x%02X: %s", code, description);
+    }
+
+    private static byte repeatForScanModel(int scanModel) {
+        // Model 104 op deze L3 volgt de groep die Sunmi met herhaling 50 leest.
+        if (scanModel == RFIDManager.UHF_S7100 || scanModel == RFIDManager.INNER_SIM3500) {
+            return 50;
+        }
+        return REALTIME_REPEAT;
     }
 
 
