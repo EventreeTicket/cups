@@ -68,18 +68,9 @@ public final class MainActivity extends Activity {
         @Override public void onSuccess(byte command, DataParameter params) {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
             if (!scanRunning) return;
-            if (command == CMD.INVENTORY) {
+            if (command == CMD.REAL_TIME_INVENTORY) {
                 inventoryCompleted = true;
-                try {
-                    rfid.getAndResetInventoryBuffer();
-                } catch (Exception error) {
-                    Log.e(LOG_TAG, "Could not read RFID inventory buffer", error);
-                    runOnUiThread(() -> failScan("Tags ophalen mislukt: " + error.getMessage()));
-                }
-            } else if (command == CMD.GET_AND_RESET_INVENTORY_BUFFER) {
-                addTag(params.getString(ParamCts.TAG_EPC, ""));
-                scanTimer.removeCallbacksAndMessages(null);
-                scanTimer.postDelayed(MainActivity.this::finishScan, 350);
+                runOnUiThread(MainActivity.this::finishScan);
             } else {
                 runOnUiThread(MainActivity.this::finishScan);
             }
@@ -108,15 +99,12 @@ public final class MainActivity extends Activity {
 
         @Override public void onFailed(byte command, byte errorCode, String message) {
             Log.e(LOG_TAG, "RFID failure command=" + command + " code=" + errorCode + " message=" + message);
-            // De L3-SDK beëindigt het ophalen van een buffer regelmatig met
-            // 0x11, ook na een geslaagde inventarisatie. Dat is hier alleen
-            // een normale scanafronding, geen gebruikersfout.
             if (!scanRunning) {
                 Log.d(LOG_TAG, "Ignoring late RFID callback after scan completion.");
                 return;
             }
-            if (command == CMD.GET_AND_RESET_INVENTORY_BUFFER && inventoryCompleted) {
-                Log.w(LOG_TAG, "Buffer ended after completed inventory; completing scan.");
+            if (command == CMD.REAL_TIME_INVENTORY && inventoryCompleted) {
+                Log.w(LOG_TAG, "Realtime inventory ended after completion; completing scan.");
                 runOnUiThread(MainActivity.this::finishScan);
                 return;
             }
@@ -259,8 +247,8 @@ public final class MainActivity extends Activity {
     private void startInventory() {
         if (!scanRunning || rfid == null) return;
         try {
-            rfid.inventory(INVENTORY_ROUNDS);
-            Log.d(LOG_TAG, "Starting RFID inventory for about four seconds");
+            rfid.realTimeInventory(INVENTORY_ROUNDS);
+            Log.d(LOG_TAG, "Starting realtime RFID inventory for about four seconds");
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID inventory", error);
             failScan("Starten van scan mislukt: " + error.getMessage());
