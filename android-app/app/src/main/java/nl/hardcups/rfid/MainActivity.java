@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -50,6 +51,8 @@ public final class MainActivity extends Activity {
     // herhaling 1 opnieuw na iedere callback. Zo komen tags continu binnen.
     private static final byte REALTIME_REPEAT = 0x01;
     private static final long SCAN_DURATION_MS = 4_000;
+    private static final long SIDE_BUTTON_MAX_DURATION_MS = 10_000;
+    private static final int SIDE_BUTTON_KEY_CODE = 388;
     private static final long POWER_COMMAND_TIMEOUT_MS = 2_000;
     private static final byte MIN_OUTPUT_POWER_DBM = 18;
     private static final byte MAX_OUTPUT_POWER_DBM = 26;
@@ -78,6 +81,35 @@ public final class MainActivity extends Activity {
     private boolean uploadRunning;
     private byte requestedPowerDbm = MIN_OUTPUT_POWER_DBM;
     private boolean debugUploadRunning;
+    private boolean sideButtonHeld;
+
+    /**
+     * Sunmi exposes the side scan key as a custom Android key code. Log the
+     * raw event first so we can bind only that key (and not volume/power keys)
+     * on devices where the code is vendor-specific.
+     */
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event != null && event.getKeyCode() == SIDE_BUTTON_KEY_CODE) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (!sideButtonHeld) {
+                    sideButtonHeld = true;
+                    debug("sidebutton_down", "key_code=" + SIDE_BUTTON_KEY_CODE);
+                    startScan(true);
+                }
+                return true;
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                sideButtonHeld = false;
+                debug("sidebutton_up", "key_code=" + SIDE_BUTTON_KEY_CODE);
+                if (scanRunning) {
+                    stopRealtimeInventory();
+                    beginUpload();
+                }
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
 
     private final ReaderCall readerCall = new ReaderCall() {
         @Override public void onSuccess(byte command, DataParameter params) {
@@ -206,6 +238,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() {
         // Gelijk aan de officiële Sunmi-demo: laat de UHF-module niet doorlezen
         // als de app naar de achtergrond gaat.
+        sideButtonHeld = false;
         if (scanRunning) stopRealtimeInventory();
         super.onPause();
     }
@@ -302,6 +335,10 @@ public final class MainActivity extends Activity {
     }
 
     private void startScan() {
+        startScan(false);
+    }
+
+    private void startScan(boolean hardwareTriggered) {
         if (rfid == null) {
             setStatus("RFID-lezer is nog niet gereed", true);
             return;
@@ -326,10 +363,23 @@ public final class MainActivity extends Activity {
         scanButton.setEnabled(false);
         powerSlider.setEnabled(false);
         setStatus("RFID-tags zoeken…", false);
-        debug("scan_started", "direction=" + (direction.getCheckedRadioButtonId() == direction.getChildAt(0).getId() ? "in" : "out"));
+        debug("scan_started", "direction=" + (direction.getCheckedRadioButtonId() == direction.getChildAt(0).getId() ? "in" : "out")
+                + " trigger=" + (hardwareTriggered ? "sidebutton" : "screen"));
         startRealtimeInventory();
-        scanTimer.postDelayed(this::stopRealtimeInventory, SCAN_DURATION_MS);
-        presentationTimer.postDelayed(this::beginUpload, SCAN_DURATION_MS);
+        if (hardwareTriggered) {
+            // Bescherming tegen een gemiste UP-event bij een verstoorde
+            // verbinding; normaal stopt de scan direct bij loslaten.
+            scanTimer.postDelayed(() -> {
+                if (scanRunning) {
+                    debug("sidebutton_safety_timeout", "duration_ms=" + SIDE_BUTTON_MAX_DURATION_MS);
+                    stopRealtimeInventory();
+                    beginUpload();
+                }
+            }, SIDE_BUTTON_MAX_DURATION_MS);
+        } else {
+            scanTimer.postDelayed(this::stopRealtimeInventory, SCAN_DURATION_MS);
+            presentationTimer.postDelayed(this::beginUpload, SCAN_DURATION_MS);
+        }
     }
 
     private void startRealtimeInventory() {
