@@ -69,6 +69,7 @@ public final class MainActivity extends Activity {
     private LinearLayout liveTags;
     private RFIDHelper rfid;
     private byte realtimeRepeat = REALTIME_REPEAT;
+    private boolean readerRegistered;
     private boolean scanRunning;
     private boolean scanActive;
     private boolean inventoryCompleted;
@@ -88,13 +89,6 @@ public final class MainActivity extends Activity {
                     powerSlider.setEnabled(!scanRunning && rfid != null);
                     setStatus("Vermogen ingesteld op " + requestedPowerDbm + " dBm", false);
                 });
-                return;
-            }
-            if (command == CMD.INVENTORY && !scanRunning && scanActive) {
-                scanTimer.removeCallbacksAndMessages(null);
-                readerCompleted = true;
-                debug("reader_stop_ack", "command=" + command);
-                runOnUiThread(MainActivity.this::finishScanIfReady);
                 return;
             }
             if (!scanRunning) return;
@@ -139,13 +133,6 @@ public final class MainActivity extends Activity {
                 });
                 return;
             }
-            if (command == CMD.INVENTORY && !scanRunning && scanActive) {
-                scanTimer.removeCallbacksAndMessages(null);
-                readerCompleted = true;
-                debug("reader_stop_failed", "error=0x" + String.format("%02X", errorCode & 0xFF) + " message=" + message);
-                runOnUiThread(MainActivity.this::finishScanIfReady);
-                return;
-            }
             if (!scanRunning) {
                 Log.d(LOG_TAG, "Ignoring late RFID callback after scan completion.");
                 return;
@@ -176,6 +163,7 @@ public final class MainActivity extends Activity {
                 Log.i(LOG_TAG, "Connected RFID scan model=" + scanModel + " repeat=" + realtimeRepeat);
                 debug("reader_connected", "model=" + scanModel + " repeat=" + realtimeRepeat);
                 rfid.registerReaderCall(readerCall);
+                readerRegistered = true;
                 runOnUiThread(() -> {
                     scanButton.setEnabled(true);
                     powerSlider.setEnabled(true);
@@ -188,6 +176,7 @@ public final class MainActivity extends Activity {
 
         @Override public void onServiceDisconnected() {
             rfid = null;
+            readerRegistered = false;
             runOnUiThread(() -> {
                 scanButton.setEnabled(false);
                 powerSlider.setEnabled(false);
@@ -204,7 +193,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        if (rfid != null) rfid.unregisterReaderCall();
+        if (rfid != null && readerRegistered) rfid.unregisterReaderCall();
         RFIDManager.getInstance().removeServiceConnectStatus(connectionStatus);
         RFIDManager.getInstance().disconnect();
         scanTimer.removeCallbacksAndMessages(null);
@@ -317,6 +306,15 @@ public final class MainActivity extends Activity {
             setStatus("RFID-lezer is nog niet gereed", true);
             return;
         }
+        try {
+            if (!readerRegistered) {
+                rfid.registerReaderCall(readerCall);
+                readerRegistered = true;
+            }
+        } catch (Exception error) {
+            failScan("RFID-callback kon niet worden geregistreerd: " + error.getMessage());
+            return;
+        }
         tags.clear();
         clearLiveTags();
         scanRunning = true;
@@ -356,25 +354,21 @@ public final class MainActivity extends Activity {
         if (!scanRunning) return;
         scanRunning = false;
         inventoryCompleted = true;
-        readerCompleted = false;
+        readerCompleted = true;
         scanTimer.removeCallbacksAndMessages(null);
         try {
-            // Dit is ook het stopcommando dat de officiële Sunmi-demo gebruikt.
+            // De officiële Sunmi-demo stuurt dit commando en meldt de callback
+            // direct af; een stop-ack is voor deze firmware niet betrouwbaar.
             rfid.inventory((byte) 0x01);
-            debug("scan_stopped", "unique_tags=" + tags.size());
-            scanTimer.postDelayed(this::readerStopTimeout, 3_000);
+            if (readerRegistered) {
+                rfid.unregisterReaderCall();
+                readerRegistered = false;
+            }
+            debug("reader_stop_sent", "unique_tags=" + tags.size());
         } catch (Exception error) {
             Log.w(LOG_TAG, "Could not send RFID stop command", error);
             debug("scan_stop_failed", error.toString());
-            readerCompleted = true;
         }
-        finishScanIfReady();
-    }
-
-    private void readerStopTimeout() {
-        if (readerCompleted || !scanActive) return;
-        readerCompleted = true;
-        debug("reader_stop_timeout", "Reader gaf binnen 3000 ms geen stopbevestiging");
         finishScanIfReady();
     }
 
