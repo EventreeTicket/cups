@@ -42,10 +42,10 @@ import java.util.concurrent.Executors;
 /** Eénmalige UHF-inventarisatie en verzending als batch naar de lokale API. */
 public final class MainActivity extends Activity {
     private static final String LOG_TAG = "HardcupsRFID";
-    // Volgens de Sunmi-documentatie duurt één inventarisatieronde circa 30–50 ms.
-    // 125 rondes geeft dus ongeveer vier seconden leestijd.
-    private static final byte INVENTORY_ROUNDS = 0x7D;
-    private static final long UPLOAD_START_DELAY_MS = 5_000;
+    // Het officiële Sunmi-voorbeeld start een realtime-inventarisatie met
+    // herhaling 1 opnieuw na iedere callback. Zo komen tags continu binnen.
+    private static final byte REALTIME_REPEAT = 0x01;
+    private static final long SCAN_DURATION_MS = 4_000;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Set<String> tags = new LinkedHashSet<>();
     private final Handler scanTimer = new Handler(Looper.getMainLooper());
@@ -69,8 +69,7 @@ public final class MainActivity extends Activity {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
             if (!scanRunning) return;
             if (command == CMD.REAL_TIME_INVENTORY) {
-                inventoryCompleted = true;
-                runOnUiThread(MainActivity.this::finishScan);
+                runOnUiThread(MainActivity.this::continueRealtimeInventory);
             } else {
                 runOnUiThread(MainActivity.this::finishScan);
             }
@@ -103,9 +102,10 @@ public final class MainActivity extends Activity {
                 Log.d(LOG_TAG, "Ignoring late RFID callback after scan completion.");
                 return;
             }
-            if (command == CMD.REAL_TIME_INVENTORY && inventoryCompleted) {
-                Log.w(LOG_TAG, "Realtime inventory ended after completion; completing scan.");
-                runOnUiThread(MainActivity.this::finishScan);
+            if (command == CMD.REAL_TIME_INVENTORY) {
+                // De officiële Sunmi-demo start de korte realtime-opdracht
+                // opnieuw, ook wanneer één inventarisatie geen resultaat gaf.
+                runOnUiThread(MainActivity.this::continueRealtimeInventory);
                 return;
             }
             runOnUiThread(() -> {
@@ -239,28 +239,44 @@ public final class MainActivity extends Activity {
         uploadRunning = false;
         scanButton.setEnabled(false);
         setStatus("RFID-tags zoeken…", false);
-        startInventory();
-        presentationTimer.postDelayed(this::beginUpload, UPLOAD_START_DELAY_MS);
-        scanTimer.postDelayed(this::finishScan, 6_000);
+        startRealtimeInventory();
+        scanTimer.postDelayed(this::stopRealtimeInventory, SCAN_DURATION_MS);
+        presentationTimer.postDelayed(this::beginUpload, SCAN_DURATION_MS);
     }
 
-    private void startInventory() {
+    private void startRealtimeInventory() {
         if (!scanRunning || rfid == null) return;
         try {
-            rfid.realTimeInventory(INVENTORY_ROUNDS);
-            Log.d(LOG_TAG, "Starting realtime RFID inventory for about four seconds");
+            rfid.realTimeInventory(REALTIME_REPEAT);
+            Log.d(LOG_TAG, "Starting realtime RFID inventory pass");
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID inventory", error);
             failScan("Starten van scan mislukt: " + error.getMessage());
         }
     }
 
-    private void finishScan() {
+    private void continueRealtimeInventory() {
+        if (!scanRunning) return;
+        startRealtimeInventory();
+    }
+
+    private void stopRealtimeInventory() {
         if (!scanRunning) return;
         scanRunning = false;
+        inventoryCompleted = true;
         readerCompleted = true;
         scanTimer.removeCallbacksAndMessages(null);
+        try {
+            // Dit is ook het stopcommando dat de officiële Sunmi-demo gebruikt.
+            rfid.inventory((byte) 0x01);
+        } catch (Exception error) {
+            Log.w(LOG_TAG, "Could not send RFID stop command", error);
+        }
         finishScanIfReady();
+    }
+
+    private void finishScan() {
+        stopRealtimeInventory();
     }
 
     private void beginUpload() {
