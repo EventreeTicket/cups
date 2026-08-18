@@ -14,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import com.sunmi.rfid.RFIDHelper;
@@ -46,6 +47,8 @@ public final class MainActivity extends Activity {
     // herhaling 1 opnieuw na iedere callback. Zo komen tags continu binnen.
     private static final byte REALTIME_REPEAT = 0x01;
     private static final long SCAN_DURATION_MS = 4_000;
+    private static final byte LOW_OUTPUT_POWER_DBM = 18;
+    private static final byte HIGH_OUTPUT_POWER_DBM = 26;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Set<String> tags = new LinkedHashSet<>();
     private final Handler scanTimer = new Handler(Looper.getMainLooper());
@@ -54,6 +57,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private TextView liveTagsEmpty;
     private Button scanButton;
+    private Switch powerSwitch;
     private RadioGroup direction;
     private LinearLayout liveTags;
     private RFIDHelper rfid;
@@ -64,10 +68,18 @@ public final class MainActivity extends Activity {
     private boolean readerCompleted;
     private boolean uploadStarted;
     private boolean uploadRunning;
+    private byte requestedPowerDbm = LOW_OUTPUT_POWER_DBM;
 
     private final ReaderCall readerCall = new ReaderCall() {
         @Override public void onSuccess(byte command, DataParameter params) {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
+            if (command == CMD.SET_OUTPUT_POWER) {
+                runOnUiThread(() -> {
+                    powerSwitch.setEnabled(!scanRunning && rfid != null);
+                    setStatus("Vermogen ingesteld op " + requestedPowerDbm + " dBm", false);
+                });
+                return;
+            }
             if (!scanRunning) return;
             if (command == CMD.REAL_TIME_INVENTORY) {
                 runOnUiThread(MainActivity.this::continueRealtimeInventory);
@@ -99,6 +111,13 @@ public final class MainActivity extends Activity {
 
         @Override public void onFailed(byte command, byte errorCode, String message) {
             Log.e(LOG_TAG, "RFID failure command=" + command + " code=" + errorCode + " message=" + message);
+            if (command == CMD.SET_OUTPUT_POWER) {
+                runOnUiThread(() -> {
+                    powerSwitch.setEnabled(!scanRunning && rfid != null);
+                    setStatus("Vermogen kon niet worden ingesteld: " + rfidErrorMessage(errorCode), true);
+                });
+                return;
+            }
             if (!scanRunning) {
                 Log.d(LOG_TAG, "Ignoring late RFID callback after scan completion.");
                 return;
@@ -130,6 +149,7 @@ public final class MainActivity extends Activity {
                 rfid.registerReaderCall(readerCall);
                 runOnUiThread(() -> {
                     scanButton.setEnabled(true);
+                    powerSwitch.setEnabled(true);
                     setStatus("RFID-lezer gereed", false);
                 });
             } catch (Exception error) {
@@ -141,6 +161,7 @@ public final class MainActivity extends Activity {
             rfid = null;
             runOnUiThread(() -> {
                 scanButton.setEnabled(false);
+                powerSwitch.setEnabled(false);
                 setStatus("RFID-lezer niet verbonden", true);
             });
         }
@@ -201,10 +222,23 @@ public final class MainActivity extends Activity {
         direction.addView(out);
         layout.addView(direction);
 
+        powerSwitch = new Switch(this);
+        powerSwitch.setText("Testvermogen: laag (18 dBm)");
+        powerSwitch.setTextSize(16);
+        powerSwitch.setPadding(0, dp(12), 0, dp(4));
+        powerSwitch.setEnabled(false);
+        powerSwitch.setOnCheckedChangeListener((button, high) -> {
+            requestedPowerDbm = high ? HIGH_OUTPUT_POWER_DBM : LOW_OUTPUT_POWER_DBM;
+            powerSwitch.setText(high ? "Testvermogen: sterk (26 dBm)" : "Testvermogen: laag (18 dBm)");
+            applyOutputPower();
+        });
+        layout.addView(powerSwitch);
+
         scanButton = new Button(this);
         scanButton.setText("Scannen");
         scanButton.setTextSize(20);
         scanButton.setEnabled(false);
+        powerSwitch.setEnabled(false);
         LinearLayout.LayoutParams scanParams = new LinearLayout.LayoutParams(-1, dp(64));
         scanParams.setMargins(0, dp(24), 0, dp(16));
         layout.addView(scanButton, scanParams);
@@ -307,6 +341,7 @@ public final class MainActivity extends Activity {
         if (!scanActive || !readerCompleted || !uploadStarted || uploadRunning) return;
         scanActive = false;
         scanButton.setEnabled(rfid != null);
+        powerSwitch.setEnabled(rfid != null);
     }
 
     private void clearLiveTags() {
@@ -340,7 +375,27 @@ public final class MainActivity extends Activity {
         scanTimer.removeCallbacksAndMessages(null);
         presentationTimer.removeCallbacksAndMessages(null);
         scanButton.setEnabled(rfid != null);
+        powerSwitch.setEnabled(rfid != null);
         setStatus(message, true);
+    }
+
+    private void applyOutputPower() {
+        if (rfid == null) {
+            setStatus("RFID-lezer is nog niet gereed", true);
+            return;
+        }
+        if (scanRunning) {
+            setStatus("Vermogen kan niet tijdens een scan worden gewijzigd", true);
+            return;
+        }
+        powerSwitch.setEnabled(false);
+        try {
+            rfid.setOutputAllPower(requestedPowerDbm);
+        } catch (Exception error) {
+            Log.e(LOG_TAG, "Could not set RFID output power", error);
+            powerSwitch.setEnabled(true);
+            setStatus("Vermogen kon niet worden ingesteld: " + error.getMessage(), true);
+        }
     }
 
     private static byte repeatForScanModel(int scanModel) {
