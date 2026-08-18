@@ -82,7 +82,7 @@ public final class MainActivity extends Activity {
         @Override public void onSuccess(byte command, DataParameter params) {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
             debug("rfid_success", "command=" + command + " params=" + params);
-            if (command == CMD.SET_TEMPORARY_OUTPUT_POWER) {
+            if (command == CMD.SET_OUTPUT_POWER) {
                 runOnUiThread(() -> {
                     powerTimer.removeCallbacksAndMessages(null);
                     powerSlider.setEnabled(!scanRunning && rfid != null);
@@ -124,7 +124,7 @@ public final class MainActivity extends Activity {
         @Override public void onFailed(byte command, byte errorCode, String message) {
             Log.e(LOG_TAG, "RFID failure command=" + command + " code=" + errorCode + " message=" + message);
             debug("rfid_failed", "command=" + command + " error=0x" + String.format("%02X", errorCode & 0xFF) + " message=" + message);
-            if (command == CMD.SET_TEMPORARY_OUTPUT_POWER) {
+            if (command == CMD.SET_OUTPUT_POWER) {
                 runOnUiThread(() -> {
                     powerTimer.removeCallbacksAndMessages(null);
                     powerSlider.setEnabled(!scanRunning && rfid != null);
@@ -428,7 +428,9 @@ public final class MainActivity extends Activity {
         powerSlider.setEnabled(false);
         try {
             debug("power_requested", "dbm=" + requestedPowerDbm);
-            rfid.setTemporaryOutputPower(requestedPowerDbm);
+            // De L3 ondersteunt de tijdelijke vermogensopdracht niet. De
+            // officiële Sunmi-demo gebruikt hiervoor setOutputAllPower().
+            rfid.setOutputAllPower(requestedPowerDbm);
             powerTimer.postDelayed(() -> {
                 powerSlider.setEnabled(!scanRunning && rfid != null);
                 setStatus("Geen bevestiging van de lezer; vermogen is mogelijk niet gewijzigd.", true);
