@@ -308,6 +308,8 @@ public final class MainActivity extends Activity {
         scanParams.setMargins(0, dp(24), 0, dp(16));
         layout.addView(scanButton, scanParams);
         scanButton.setOnClickListener(view -> startScan());
+        // Tijdelijk verborgen: scannen gebeurt via de fysieke sidebutton.
+        scanButton.setVisibility(View.GONE);
 
         status = new TextView(this);
         status.setText("RFID-lezer verbinden…");
