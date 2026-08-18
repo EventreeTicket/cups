@@ -90,6 +90,13 @@ public final class MainActivity extends Activity {
                 });
                 return;
             }
+            if (command == CMD.INVENTORY && !scanRunning && scanActive) {
+                scanTimer.removeCallbacksAndMessages(null);
+                readerCompleted = true;
+                debug("reader_stop_ack", "command=" + command);
+                runOnUiThread(MainActivity.this::finishScanIfReady);
+                return;
+            }
             if (!scanRunning) return;
             if (command == CMD.REAL_TIME_INVENTORY) {
                 runOnUiThread(MainActivity.this::continueRealtimeInventory);
@@ -130,6 +137,13 @@ public final class MainActivity extends Activity {
                     powerSlider.setEnabled(!scanRunning && rfid != null);
                     setStatus("Vermogen kon niet worden ingesteld: " + rfidErrorMessage(errorCode), true);
                 });
+                return;
+            }
+            if (command == CMD.INVENTORY && !scanRunning && scanActive) {
+                scanTimer.removeCallbacksAndMessages(null);
+                readerCompleted = true;
+                debug("reader_stop_failed", "error=0x" + String.format("%02X", errorCode & 0xFF) + " message=" + message);
+                runOnUiThread(MainActivity.this::finishScanIfReady);
                 return;
             }
             if (!scanRunning) {
@@ -342,16 +356,25 @@ public final class MainActivity extends Activity {
         if (!scanRunning) return;
         scanRunning = false;
         inventoryCompleted = true;
-        readerCompleted = true;
+        readerCompleted = false;
         scanTimer.removeCallbacksAndMessages(null);
         try {
             // Dit is ook het stopcommando dat de officiële Sunmi-demo gebruikt.
             rfid.inventory((byte) 0x01);
             debug("scan_stopped", "unique_tags=" + tags.size());
+            scanTimer.postDelayed(this::readerStopTimeout, 3_000);
         } catch (Exception error) {
             Log.w(LOG_TAG, "Could not send RFID stop command", error);
             debug("scan_stop_failed", error.toString());
+            readerCompleted = true;
         }
+        finishScanIfReady();
+    }
+
+    private void readerStopTimeout() {
+        if (readerCompleted || !scanActive) return;
+        readerCompleted = true;
+        debug("reader_stop_timeout", "Reader gaf binnen 3000 ms geen stopbevestiging");
         finishScanIfReady();
     }
 
