@@ -1,0 +1,13 @@
+# Lokale runtime-data: Plesk/PHP maakt en beheert deze database zelf.
+data/*.sqlite
+data/*.sqlite-*
+
+# Lokale Android-/IDE-bestanden en gegenereerde builds.
+android-app/.gradle/
+android-app/app/build/
+android-app/build/
+android-app/local.properties
+
+# macOS / IDE
+.DS_Store
+.idea/
