@@ -607,9 +607,14 @@ public final class MainActivity extends Activity {
         try {
             BufferedReader reader = new BufferedReader(new java.io.InputStreamReader(
                 connection.getResponseCode() >= 400 ? connection.getErrorStream() : connection.getInputStream(), StandardCharsets.UTF_8));
-            String line = reader.readLine();
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (response.length() > 0) response.append('\n');
+                response.append(line);
+            }
             reader.close();
-            return line == null ? "" : line;
+            return response.toString();
         } catch (Exception ignored) {
             return "";
         }
