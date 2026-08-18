@@ -49,13 +49,18 @@ public final class MainActivity extends Activity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Set<String> tags = new LinkedHashSet<>();
     private final Handler scanTimer = new Handler(Looper.getMainLooper());
+    private final Handler presentationTimer = new Handler(Looper.getMainLooper());
 
     private TextView status;
     private Button scanButton;
     private RadioGroup direction;
     private RFIDHelper rfid;
     private boolean scanRunning;
+    private boolean scanActive;
     private boolean inventoryCompleted;
+    private boolean readerCompleted;
+    private boolean uploadStarted;
+    private boolean uploadRunning;
 
     private final ReaderCall readerCall = new ReaderCall() {
         @Override public void onSuccess(byte command, DataParameter params) {
@@ -112,7 +117,9 @@ public final class MainActivity extends Activity {
             }
             runOnUiThread(() -> {
                 scanRunning = false;
+                scanActive = false;
                 scanTimer.removeCallbacksAndMessages(null);
+                presentationTimer.removeCallbacksAndMessages(null);
                 scanButton.setEnabled(rfid != null);
                 setStatus(rfidErrorMessage(errorCode), true);
             });
@@ -154,6 +161,7 @@ public final class MainActivity extends Activity {
         RFIDManager.getInstance().removeServiceConnectStatus(connectionStatus);
         RFIDManager.getInstance().disconnect();
         scanTimer.removeCallbacksAndMessages(null);
+        presentationTimer.removeCallbacksAndMessages(null);
         network.shutdownNow();
         super.onDestroy();
     }
@@ -217,17 +225,23 @@ public final class MainActivity extends Activity {
         }
         tags.clear();
         scanRunning = true;
+        scanActive = true;
         inventoryCompleted = false;
+        readerCompleted = false;
+        uploadStarted = false;
+        uploadRunning = false;
         scanButton.setEnabled(false);
         setStatus("RFID-tags zoeken…", false);
         try {
             // Eén korte inventarisatieronde; EPC's worden daarna uit de buffer opgehaald.
             rfid.inventory(INVENTORY_ROUNDS);
             Log.d(LOG_TAG, "Starting buffered inventory for about two seconds");
+            presentationTimer.postDelayed(this::beginUpload, 2_000);
             scanTimer.postDelayed(this::finishScan, 6_000);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID scan", error);
             scanRunning = false;
+            scanActive = false;
             scanButton.setEnabled(true);
             setStatus("Starten van scan mislukt: " + error.getMessage(), true);
         }
@@ -236,18 +250,35 @@ public final class MainActivity extends Activity {
     private void finishScan() {
         if (!scanRunning) return;
         scanRunning = false;
+        readerCompleted = true;
         scanTimer.removeCallbacksAndMessages(null);
+        finishScanIfReady();
+    }
+
+    private void beginUpload() {
+        if (!scanActive || uploadStarted) return;
+        uploadStarted = true;
         if (tags.isEmpty()) {
-            setStatus("Geen RFID-tags gevonden. Houd bekers dichterbij en probeer opnieuw.", true);
+            setStatus("Geen hardcup-tags gevonden. Houd bekers dichterbij en probeer opnieuw.", true);
+            finishScanIfReady();
             return;
         }
         setStatus(tags.size() + " tag(s) gevonden. Versturen…", false);
+        uploadRunning = true;
         sendBatch(new LinkedHashSet<>(tags));
+    }
+
+    private void finishScanIfReady() {
+        if (!scanActive || !readerCompleted || !uploadStarted || uploadRunning) return;
+        scanActive = false;
+        scanButton.setEnabled(rfid != null);
     }
 
     private void failScan(String message) {
         scanRunning = false;
+        scanActive = false;
         scanTimer.removeCallbacksAndMessages(null);
+        presentationTimer.removeCallbacksAndMessages(null);
         scanButton.setEnabled(rfid != null);
         setStatus(message, true);
     }
@@ -329,17 +360,19 @@ public final class MainActivity extends Activity {
                 String response = readResponse(connection);
                 connection.disconnect();
                 runOnUiThread(() -> {
-                    scanButton.setEnabled(rfid != null);
+                    uploadRunning = false;
                     if (responseCode >= 200 && responseCode < 300) {
                         setStatus(scannedTags.size() + " beker(s) " + (endpoint.equals("in") ? "uitgegeven" : "ingenomen") + ".", false);
                     } else {
                         setStatus("API-fout (" + responseCode + "): " + response, true);
                     }
+                    finishScanIfReady();
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
-                    scanButton.setEnabled(rfid != null);
+                    uploadRunning = false;
                     setStatus("Versturen mislukt: " + error.getMessage(), true);
+                    finishScanIfReady();
                 });
             }
         });
