@@ -18,8 +18,8 @@ php -S localhost:8080 router.php
 
 De database en tabellen worden automatisch aangemaakt bij de eerste aanvraag.
 
-Open daarna [http://localhost:8080/test.html](http://localhost:8080/test.html) voor een eenvoudige handmatige testpagina.
-De volledige lokale API-documentatie staat op [http://localhost:8080/api.html](http://localhost:8080/api.html).
+Open daarna [http://localhost:8080/](http://localhost:8080/) voor het live-overzicht.
+De volledige lokale API-documentatie staat op [http://localhost:8080/api.php](http://localhost:8080/api.php).
 
 ## Sunmi L3 Android-app
 

@@ -1,46 +1,38 @@
-<!doctype html>
+<?php
+
+declare(strict_types=1);
+?><!doctype html>
 <html lang="nl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RFID API-specificatie</title>
-  <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background:#101719; color:#edf4ed; }
-    * { box-sizing:border-box; } body { margin:0; background:radial-gradient(circle at top right,#284b3c,transparent 35rem),#101719; }
-    main { width:min(900px,calc(100% - 32px)); margin:auto; padding:48px 0 72px; } h1 { font-size:clamp(2.2rem,7vw,4rem); letter-spacing:-.06em; margin:0; }
-    h2 { margin:0 0 14px; font-size:1.45rem; } h3 { margin:22px 0 10px; font-size:1rem; } p,li { color:#c2d0c6; line-height:1.6; }
-    a { color:#a7f3bf; } section { background:#172220; border:1px solid #31443c; border-radius:18px; padding:24px; margin-top:20px; }
-    .lead { font-size:1.1rem; max-width:650px; } .route { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 0; border-bottom:1px solid #31443c; }
-    .route:last-child { border:0; } .method { border-radius:6px; padding:3px 7px; font-size:.75rem; font-weight:800; background:#226442; color:#dfffea; } .get { background:#1f5276; }
-    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#dfffea; } pre { margin:0; padding:16px; overflow:auto; border-radius:10px; background:#0b1110; border:1px solid #2b3c34; color:#dfffea; line-height:1.5; }
-    table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:11px 8px; border-bottom:1px solid #31443c; vertical-align:top; } th { color:#a7f3bf; } td { color:#c2d0c6; }
-    .note { border-left:3px solid #a7f3bf; padding-left:14px; } .top { display:flex; gap:14px; justify-content:space-between; align-items:center; } .tag { color:#9caf9f; font-size:.9rem; }
-  </style>
+  <link rel="stylesheet" href="/assets/site.css">
 </head>
-<body>
+<body class="api-page">
   <main>
-    <div class="top"><span class="tag">LOKALE RFID CUP API · v1</span><a href="/test.html">Handmatig testen →</a></div>
+    <div class="top"><span class="tag">RFID CUP API · v1</span><a href="/">Live-overzicht →</a></div>
     <h1>API-specificatie</h1>
-    <p class="lead">Deze API registreert RFID-tags als <strong>ingeschreven</strong> (IN) of <strong>uitgeschreven</strong> (OUT). Elke scan blijft in de historie; de actuele status van een tag is altijd de laatste scan.</p>
+    <p class="lead">Deze API registreert RFID-tags als <strong>uitgegeven</strong> (IN) of <strong>ingenomen</strong> (OUT). Elke scan blijft in de historie; de actuele status van een tag is altijd de laatste scan.</p>
 
     <section>
       <h2>Basis</h2>
-      <p>Bij lokaal draaien is het basisadres <code>http://localhost:8080</code>. Verzoeken en antwoorden gebruiken JSON. Voeg bij POST-verzoeken altijd deze header toe:</p>
+      <p>Het basisadres is <code>https://cups.paytree-network.nl</code>. Verzoeken en antwoorden gebruiken JSON. Voeg bij POST-verzoeken altijd deze header toe:</p>
       <pre>Content-Type: application/json</pre>
-      <p class="note">De API heeft in dit concept nog geen authenticatie. Gebruik hem alleen op een vertrouwd lokaal netwerk, of voeg vóór productie een API-key of andere beveiliging toe.</p>
+      <p class="note">De API heeft in dit concept nog geen authenticatie. Voeg vóór productie een API-key of andere beveiliging toe.</p>
     </section>
 
     <section>
       <h2>Endpoints</h2>
-      <div class="route"><span class="method">POST</span><code>/api/scans/in</code><span>Registreer één of meer bekers als ingeschreven.</span></div>
-      <div class="route"><span class="method">POST</span><code>/api/scans/out</code><span>Registreer één of meer bekers als uitgeschreven.</span></div>
+      <div class="route"><span class="method">POST</span><code>/api/scans/in</code><span>Registreer één of meer bekers als uitgegeven.</span></div>
+      <div class="route"><span class="method">POST</span><code>/api/scans/out</code><span>Registreer één of meer bekers als ingenomen.</span></div>
       <div class="route"><span class="method get">GET</span><code>/api/cups</code><span>Haal de actuele status van alle bekende tags op.</span></div>
       <div class="route"><span class="method get">GET</span><code>/api/cups/{tag}</code><span>Haal één beker plus de volledige scanhistorie op.</span></div>
       <div class="route"><span class="method get">GET</span><code>/health</code><span>Eenvoudige beschikbaarheidscheck.</span></div>
     </section>
 
     <section>
-      <h2>Tags inscannen of uitscannen</h2>
+      <h2>Bekers uitgeven of innemen</h2>
       <p>Gebruik exact hetzelfde JSON-formaat voor beide richtingen. Een batch mag bijvoorbeeld twaalf hardcups bevatten.</p>
       <h3>Verzoek</h3>
       <pre>{
@@ -56,9 +48,9 @@
           <tr><td><code>request_id</code></td><td>Nee, aanbevolen</td><td>Unieke ID van dit scannerverzoek. Bij opnieuw verzenden geeft de API hetzelfde resultaat terug zonder dubbel te registreren.</td></tr>
         </tbody>
       </table>
-      <h3>Inscannen</h3>
+      <h3>Uitgeven</h3>
       <pre>POST /api/scans/in</pre>
-      <h3>Uitscannen</h3>
+      <h3>Innemen</h3>
       <pre>POST /api/scans/out</pre>
       <h3>Succesantwoord · HTTP 201</h3>
       <pre>{

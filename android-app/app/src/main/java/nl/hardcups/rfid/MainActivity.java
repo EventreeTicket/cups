@@ -42,6 +42,7 @@ import java.util.concurrent.Executors;
 /** Eénmalige UHF-inventarisatie en verzending als batch naar de lokale API. */
 public final class MainActivity extends Activity {
     private static final String LOG_TAG = "HardcupsRFID";
+    private static final String CUP_TAG_PREFIX = "434850CCCCCC";
     // De Sunmi-documentatie noemt ongeveer 30-50 ms per inventarisatieronde.
     // Veertig rondes geven in de praktijk ongeveer twee seconden leestijd.
     private static final byte INVENTORY_ROUNDS = 0x28;
@@ -85,6 +86,10 @@ public final class MainActivity extends Activity {
         private void addTag(String epc) {
             Log.d(LOG_TAG, "RFID tag epc=" + epc);
             if (epc == null || epc.trim().isEmpty()) return;
+            if (!epc.trim().startsWith(CUP_TAG_PREFIX)) {
+                Log.d(LOG_TAG, "Ignoring non-hardcup RFID tag=" + epc);
+                return;
+            }
             synchronized (tags) {
                 tags.add(epc.trim());
             }
@@ -166,7 +171,7 @@ public final class MainActivity extends Activity {
         layout.addView(title);
 
         TextView instruction = new TextView(this);
-        instruction.setText("Kies de richting, houd de bekers bij de lezer en druk op Scannen.");
+        instruction.setText("Kies de actie, houd de bekers bij de lezer en druk op Scannen.");
         instruction.setTextSize(16);
         instruction.setPadding(0, dp(12), 0, dp(18));
         layout.addView(instruction);
@@ -175,11 +180,11 @@ public final class MainActivity extends Activity {
         direction.setOrientation(RadioGroup.HORIZONTAL);
         RadioButton in = new RadioButton(this);
         in.setId(View.generateViewId());
-        in.setText("Inscannen");
+        in.setText("Uitgeven");
         in.setChecked(true);
         RadioButton out = new RadioButton(this);
         out.setId(View.generateViewId());
-        out.setText("Uitscannen");
+        out.setText("Innemen");
         direction.addView(in);
         direction.addView(out);
         layout.addView(direction);
@@ -326,7 +331,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     scanButton.setEnabled(rfid != null);
                     if (responseCode >= 200 && responseCode < 300) {
-                        setStatus(scannedTags.size() + " beker(s) " + (endpoint.equals("in") ? "ingescand" : "uitgescand") + ".", false);
+                        setStatus(scannedTags.size() + " beker(s) " + (endpoint.equals("in") ? "uitgegeven" : "ingenomen") + ".", false);
                     } else {
                         setStatus("API-fout (" + responseCode + "): " + response, true);
                     }

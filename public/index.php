@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+const CUP_TAG_PREFIX = '434850CCCCCC';
+const DEPOSIT_PER_CUP_CENTS = 250;
+
 header('Content-Type: application/json; charset=utf-8');
 
 try {
@@ -103,8 +106,21 @@ function createScanBatch(PDO $db, string $direction): never
         return trim($tag);
     }, $tags)));
 
+    $ignoredTags = array_values(array_filter($tags, static fn (string $tag): bool => !str_starts_with($tag, CUP_TAG_PREFIX)));
+    $tags = array_values(array_filter($tags, static fn (string $tag): bool => str_starts_with($tag, CUP_TAG_PREFIX)));
+
     $requestId = optionalText($payload['request_id'] ?? null, 'request_id');
     $source = optionalText($payload['source'] ?? null, 'source');
+
+    if ($tags === []) {
+        respond([
+            'batch_id' => null,
+            'direction' => strtolower($direction),
+            'processed_tags' => 0,
+            'tags' => [],
+            'ignored_tags' => $ignoredTags,
+        ]);
+    }
 
     if ($requestId !== null) {
         $existing = $db->prepare('SELECT response_json FROM scan_batches WHERE request_id = :request_id');
@@ -166,6 +182,7 @@ function createScanBatch(PDO $db, string $direction): never
             'scanned_at' => $scannedAt,
             'processed_tags' => count($tags),
             'tags' => $tags,
+            'ignored_tags' => $ignoredTags,
         ];
         $saveResponse = $db->prepare('UPDATE scan_batches SET response_json = :response WHERE id = :id');
         $saveResponse->execute(['response' => json_encode($response, JSON_THROW_ON_ERROR), 'id' => $batchId]);
@@ -182,8 +199,15 @@ function createScanBatch(PDO $db, string $direction): never
 
 function listCups(PDO $db): never
 {
-    $rows = $db->query('SELECT tag, status, last_scanned_at, last_source FROM cup_status ORDER BY last_scanned_at DESC')->fetchAll(PDO::FETCH_ASSOC);
-    respond(['count' => count($rows), 'cups' => $rows]);
+    $rows = $db->query("SELECT tag, status, last_scanned_at, last_source FROM cup_status WHERE status = 'IN' ORDER BY last_scanned_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+    $issuedCount = count($rows);
+    respond([
+        'count' => $issuedCount,
+        'issued_count' => $issuedCount,
+        'deposit_per_cup_cents' => DEPOSIT_PER_CUP_CENTS,
+        'deposit_outstanding_cents' => $issuedCount * DEPOSIT_PER_CUP_CENTS,
+        'cups' => $rows,
+    ]);
 }
 
 /** Leegt uitsluitend de demo-registraties; de SQLite-database blijft bestaan. */

@@ -1,8 +1,8 @@
 RewriteEngine On
-DirectoryIndex test.html
+DirectoryIndex test.php
 
 # Gebruik een nette URL voor de live testpagina.
-RewriteRule ^test/?$ test.html [L]
+RewriteRule ^test/?$ test.php [L]
 
 # Laat bestaande bestanden (zoals test.html) met rust; stuur API-routes naar index.php.
 RewriteCond %{REQUEST_FILENAME} !-f
