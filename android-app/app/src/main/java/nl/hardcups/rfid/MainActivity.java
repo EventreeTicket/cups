@@ -54,12 +54,14 @@ public final class MainActivity extends Activity {
     private RadioGroup direction;
     private RFIDHelper rfid;
     private boolean scanRunning;
+    private boolean inventoryCompleted;
 
     private final ReaderCall readerCall = new ReaderCall() {
         @Override public void onSuccess(byte command, DataParameter params) {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
             if (!scanRunning) return;
             if (command == CMD.INVENTORY) {
+                inventoryCompleted = true;
                 try {
                     rfid.getAndResetInventoryBuffer();
                 } catch (Exception error) {
@@ -91,11 +93,15 @@ public final class MainActivity extends Activity {
 
         @Override public void onFailed(byte command, byte errorCode, String message) {
             Log.e(LOG_TAG, "RFID failure command=" + command + " code=" + errorCode + " message=" + message);
-            // Op de L3-SDK eindigt getAndResetInventoryBuffer soms met 0x11,
-            // ook nadat alle EPC's al via onTag zijn afgeleverd. Behandel die
-            // specifieke situatie als een afgeronde scan, niet als verlies van data.
-            if (scanRunning && command == CMD.GET_AND_RESET_INVENTORY_BUFFER && hasTags()) {
-                Log.w(LOG_TAG, "Buffer ended with error after receiving tags; completing scan.");
+            // De L3-SDK beëindigt het ophalen van een buffer regelmatig met
+            // 0x11, ook na een geslaagde inventarisatie. Dat is hier alleen
+            // een normale scanafronding, geen gebruikersfout.
+            if (!scanRunning) {
+                Log.d(LOG_TAG, "Ignoring late RFID callback after scan completion.");
+                return;
+            }
+            if (command == CMD.GET_AND_RESET_INVENTORY_BUFFER && inventoryCompleted) {
+                Log.w(LOG_TAG, "Buffer ended after completed inventory; completing scan.");
                 runOnUiThread(MainActivity.this::finishScan);
                 return;
             }
@@ -206,13 +212,14 @@ public final class MainActivity extends Activity {
         }
         tags.clear();
         scanRunning = true;
+        inventoryCompleted = false;
         scanButton.setEnabled(false);
         setStatus("RFID-tags zoeken…", false);
         try {
             // Eén korte inventarisatieronde; EPC's worden daarna uit de buffer opgehaald.
             rfid.inventory(INVENTORY_ROUNDS);
             Log.d(LOG_TAG, "Starting buffered inventory for about two seconds");
-            scanTimer.postDelayed(this::finishScan, 4_000);
+            scanTimer.postDelayed(this::finishScan, 6_000);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID scan", error);
             scanRunning = false;
@@ -238,12 +245,6 @@ public final class MainActivity extends Activity {
         scanTimer.removeCallbacksAndMessages(null);
         scanButton.setEnabled(rfid != null);
         setStatus(message, true);
-    }
-
-    private boolean hasTags() {
-        synchronized (tags) {
-            return !tags.isEmpty();
-        }
     }
 
     private static String rfidErrorMessage(byte errorCode) {
