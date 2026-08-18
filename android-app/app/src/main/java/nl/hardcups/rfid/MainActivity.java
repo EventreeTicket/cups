@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
     private RadioGroup direction;
     private LinearLayout liveTags;
     private RFIDHelper rfid;
+    private byte realtimeRepeat = REALTIME_REPEAT;
     private boolean scanRunning;
     private boolean scanActive;
     private boolean inventoryCompleted;
@@ -123,6 +124,9 @@ public final class MainActivity extends Activity {
         @Override public void onServiceConnected() {
             rfid = RFIDManager.getInstance().getHelper();
             try {
+                int scanModel = rfid.getScanModel();
+                realtimeRepeat = repeatForScanModel(scanModel);
+                Log.i(LOG_TAG, "Connected RFID scan model=" + scanModel + " repeat=" + realtimeRepeat);
                 rfid.registerReaderCall(readerCall);
                 runOnUiThread(() -> {
                     scanButton.setEnabled(true);
@@ -157,6 +161,13 @@ public final class MainActivity extends Activity {
         presentationTimer.removeCallbacksAndMessages(null);
         network.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override protected void onPause() {
+        // Gelijk aan de officiële Sunmi-demo: laat de UHF-module niet doorlezen
+        // als de app naar de achtergrond gaat.
+        if (scanRunning) stopRealtimeInventory();
+        super.onPause();
     }
 
     private View createScreen() {
@@ -247,8 +258,8 @@ public final class MainActivity extends Activity {
     private void startRealtimeInventory() {
         if (!scanRunning || rfid == null) return;
         try {
-            rfid.realTimeInventory(REALTIME_REPEAT);
-            Log.d(LOG_TAG, "Starting realtime RFID inventory pass");
+            rfid.realTimeInventory(realtimeRepeat);
+            Log.d(LOG_TAG, "Starting realtime RFID inventory pass; repeat=" + realtimeRepeat);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID inventory", error);
             failScan("Starten van scan mislukt: " + error.getMessage());
@@ -330,6 +341,14 @@ public final class MainActivity extends Activity {
         presentationTimer.removeCallbacksAndMessages(null);
         scanButton.setEnabled(rfid != null);
         setStatus(message, true);
+    }
+
+    private static byte repeatForScanModel(int scanModel) {
+        // Overgenomen uit ReadBaseFragment.kt van SunmiUHF.
+        if (scanModel == RFIDManager.UHF_S7100 || scanModel == RFIDManager.INNER_SIM3500) {
+            return 50;
+        }
+        return REALTIME_REPEAT;
     }
 
     private static String rfidErrorMessage(byte errorCode) {
