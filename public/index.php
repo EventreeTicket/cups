@@ -138,13 +138,9 @@ function createScanBatch(PDO $db, string $direction): never
              VALUES (:batch_id, :tag, :direction, :source, :scanned_at)'
         );
         $status = $db->prepare(
-            'INSERT INTO cup_status (tag, status, last_scanned_at, last_source, updated_by_batch_id)
-             VALUES (:tag, :status, :last_scanned_at, :last_source, :batch_id)
-             ON CONFLICT(tag) DO UPDATE SET
-               status = excluded.status,
-               last_scanned_at = excluded.last_scanned_at,
-               last_source = excluded.last_source,
-               updated_by_batch_id = excluded.updated_by_batch_id'
+            // INSERT OR REPLACE werkt ook op de oudere SQLite-versie van Plesk.
+            'INSERT OR REPLACE INTO cup_status (tag, status, last_scanned_at, last_source, updated_by_batch_id)
+             VALUES (:tag, :status, :last_scanned_at, :last_source, :batch_id)'
         );
 
         foreach ($tags as $tag) {
