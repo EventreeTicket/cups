@@ -28,10 +28,10 @@ scanknop.
 
 ## Vermogen en EPC-prefix
 
-De testschakelaar in de app wisselt alleen op expliciete gebruikersactie tussen
-18 dBm (laag) en 26 dBm (sterk). Verander vermogen nooit tijdens een scan.
-De instelling kan door de RFID-module worden bewaard; gebruik deze functie dus
-alleen voor het afstellen van het leesveld.
+De testslider in de app loopt van 18 tot en met 26 dBm en schrijft de gekozen
+waarde pas wanneer de gebruiker de slider loslaat. Verander vermogen nooit
+tijdens een scan. De instelling kan door de RFID-module worden bewaard; gebruik
+deze functie dus alleen voor het afstellen van het leesveld.
 
 De waargenomen hardcup-EPC's delen de eerste 20 hexadecimale tekens:
 `33140BEEB034C7800073`. Het resterende deel is de unieke bekeridentiteit.
