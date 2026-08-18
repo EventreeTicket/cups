@@ -1,4 +1,5 @@
 RewriteEngine On
+DirectoryIndex test.html
 
 # Gebruik een nette URL voor de live testpagina.
 RewriteRule ^test/?$ test.html [L]
