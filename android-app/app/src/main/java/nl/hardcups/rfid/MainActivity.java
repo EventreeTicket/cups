@@ -42,13 +42,15 @@ import java.util.concurrent.Executors;
 /** Eénmalige UHF-inventarisatie en verzending als batch naar de lokale API. */
 public final class MainActivity extends Activity {
     private static final String LOG_TAG = "HardcupsRFID";
-    // De Sunmi-documentatie noemt ongeveer 30-50 ms per inventarisatieronde.
-    // 125 rondes geven in de praktijk ongeveer vier seconden leestijd.
-    private static final byte INVENTORY_ROUNDS = 0x7D;
+    // Acht korte, onafhankelijke rondes geven bewegende bekers meerdere kansen.
+    private static final byte INVENTORY_ROUNDS = (byte) 0xFF;
+    private static final int INVENTORY_PASS_COUNT = 8;
+    private static final long INVENTORY_PASS_INTERVAL_MS = 550;
     private static final long UPLOAD_START_DELAY_MS = 5_000;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Set<String> tags = new LinkedHashSet<>();
     private final Handler scanTimer = new Handler(Looper.getMainLooper());
+    private final Handler inventoryTimer = new Handler(Looper.getMainLooper());
     private final Handler presentationTimer = new Handler(Looper.getMainLooper());
 
     private TextView status;
@@ -60,6 +62,7 @@ public final class MainActivity extends Activity {
     private boolean scanRunning;
     private boolean scanActive;
     private boolean inventoryCompleted;
+    private int inventoryPass;
     private boolean readerCompleted;
     private boolean uploadStarted;
     private boolean uploadRunning;
@@ -69,12 +72,18 @@ public final class MainActivity extends Activity {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
             if (!scanRunning) return;
             if (command == CMD.INVENTORY) {
-                inventoryCompleted = true;
-                try {
-                    rfid.getAndResetInventoryBuffer();
-                } catch (Exception error) {
-                    Log.e(LOG_TAG, "Could not read RFID inventory buffer", error);
-                    runOnUiThread(() -> failScan("Tags ophalen mislukt: " + error.getMessage()));
+                inventoryPass++;
+                if (inventoryPass < INVENTORY_PASS_COUNT) {
+                    runOnUiThread(() -> setStatus("RFID-tags zoeken… ronde " + inventoryPass + "/" + INVENTORY_PASS_COUNT, false));
+                    inventoryTimer.postDelayed(MainActivity.this::startInventoryPass, INVENTORY_PASS_INTERVAL_MS);
+                } else {
+                    inventoryCompleted = true;
+                    try {
+                        rfid.getAndResetInventoryBuffer();
+                    } catch (Exception error) {
+                        Log.e(LOG_TAG, "Could not read RFID inventory buffer", error);
+                        runOnUiThread(() -> failScan("Tags ophalen mislukt: " + error.getMessage()));
+                    }
                 }
             } else if (command == CMD.GET_AND_RESET_INVENTORY_BUFFER) {
                 addTag(params.getString(ParamCts.TAG_EPC, ""));
@@ -124,6 +133,7 @@ public final class MainActivity extends Activity {
                 scanRunning = false;
                 scanActive = false;
                 scanTimer.removeCallbacksAndMessages(null);
+                inventoryTimer.removeCallbacksAndMessages(null);
                 presentationTimer.removeCallbacksAndMessages(null);
                 scanButton.setEnabled(rfid != null);
                 setStatus(rfidErrorMessage(errorCode), true);
@@ -166,6 +176,7 @@ public final class MainActivity extends Activity {
         RFIDManager.getInstance().removeServiceConnectStatus(connectionStatus);
         RFIDManager.getInstance().disconnect();
         scanTimer.removeCallbacksAndMessages(null);
+        inventoryTimer.removeCallbacksAndMessages(null);
         presentationTimer.removeCallbacksAndMessages(null);
         network.shutdownNow();
         super.onDestroy();
@@ -246,23 +257,25 @@ public final class MainActivity extends Activity {
         scanRunning = true;
         scanActive = true;
         inventoryCompleted = false;
+        inventoryPass = 0;
         readerCompleted = false;
         uploadStarted = false;
         uploadRunning = false;
         scanButton.setEnabled(false);
-        setStatus("RFID-tags zoeken…", false);
+        setStatus("RFID-tags zoeken… ronde 1/" + INVENTORY_PASS_COUNT, false);
+        startInventoryPass();
+        presentationTimer.postDelayed(this::beginUpload, UPLOAD_START_DELAY_MS);
+        scanTimer.postDelayed(this::finishScan, 8_000);
+    }
+
+    private void startInventoryPass() {
+        if (!scanRunning || rfid == null) return;
         try {
-            // Vier seconden inventariseren; EPC's worden daarna uit de buffer opgehaald.
             rfid.inventory(INVENTORY_ROUNDS);
-            Log.d(LOG_TAG, "Starting buffered inventory for about four seconds");
-            presentationTimer.postDelayed(this::beginUpload, UPLOAD_START_DELAY_MS);
-            scanTimer.postDelayed(this::finishScan, 6_000);
+            Log.d(LOG_TAG, "Starting RFID inventory pass " + (inventoryPass + 1) + "/" + INVENTORY_PASS_COUNT);
         } catch (Exception error) {
-            Log.e(LOG_TAG, "Could not start RFID scan", error);
-            scanRunning = false;
-            scanActive = false;
-            scanButton.setEnabled(true);
-            setStatus("Starten van scan mislukt: " + error.getMessage(), true);
+            Log.e(LOG_TAG, "Could not start RFID inventory pass", error);
+            failScan("Starten van scan mislukt: " + error.getMessage());
         }
     }
 
@@ -271,6 +284,7 @@ public final class MainActivity extends Activity {
         scanRunning = false;
         readerCompleted = true;
         scanTimer.removeCallbacksAndMessages(null);
+        inventoryTimer.removeCallbacksAndMessages(null);
         finishScanIfReady();
     }
 
@@ -322,6 +336,7 @@ public final class MainActivity extends Activity {
         scanRunning = false;
         scanActive = false;
         scanTimer.removeCallbacksAndMessages(null);
+        inventoryTimer.removeCallbacksAndMessages(null);
         presentationTimer.removeCallbacksAndMessages(null);
         scanButton.setEnabled(rfid != null);
         setStatus(message, true);
