@@ -30,6 +30,10 @@ try {
         createScanBatch($db, strtoupper($matches[1]));
     }
 
+    if ($method === 'POST' && $path === '/api/debug-logs') {
+        storeDebugLogs($db);
+    }
+
     if ($method === 'POST' && $path === '/api/demo/reset') {
         resetDemoData($db);
     }
@@ -40,6 +44,10 @@ try {
 
     if ($method === 'GET' && $path === '/api/history') {
         listHistory($db);
+    }
+
+    if ($method === 'GET' && $path === '/api/debug-logs') {
+        listDebugLogs($db);
     }
 
     if ($method === 'GET' && preg_match('#^/api/cups/(.+)$#', $path, $matches)) {
@@ -87,7 +95,61 @@ function initialiseDatabase(PDO $db): void
         );
 
         CREATE INDEX IF NOT EXISTS scan_events_tag_scanned_at ON scan_events(tag, scanned_at DESC);
+
+        CREATE TABLE IF NOT EXISTS debug_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,
+            event TEXT NOT NULL,
+            details TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS debug_logs_created_at ON debug_logs(created_at DESC);
     SQL);
+}
+
+function storeDebugLogs(PDO $db): never
+{
+    $payload = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($payload) || !is_array($payload['logs'] ?? null)) {
+        throw new InvalidArgumentException('logs moet een lijst zijn.');
+    }
+
+    $source = optionalText($payload['source'] ?? null, 'source');
+    $logs = array_slice($payload['logs'], 0, 200);
+    $insert = $db->prepare(
+        'INSERT INTO debug_logs (source, event, details, created_at)
+         VALUES (:source, :event, :details, :created_at)'
+    );
+    $createdAt = gmdate('c');
+    $stored = 0;
+    foreach ($logs as $log) {
+        if (!is_array($log) || !is_string($log['event'] ?? null) || trim($log['event']) === '') {
+            continue;
+        }
+        $details = !isset($log['details']) ? null : (is_string($log['details'])
+            ? $log['details']
+            : json_encode($log['details'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $insert->execute([
+            'source' => $source,
+            'event' => trim($log['event']),
+            'details' => $details,
+            'created_at' => $createdAt,
+        ]);
+        $stored++;
+    }
+    respond(['stored' => $stored], 201);
+}
+
+function listDebugLogs(PDO $db): never
+{
+    $logs = $db->query(
+        'SELECT id, source, event, details, created_at
+         FROM debug_logs
+         ORDER BY id DESC
+         LIMIT 500'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    respond(['count' => count($logs), 'logs' => $logs]);
 }
 
 function createScanBatch(PDO $db, string $direction): never
@@ -223,7 +285,8 @@ function resetDemoData(PDO $db): never
         $events = $db->exec('DELETE FROM scan_events');
         $cups = $db->exec('DELETE FROM cup_status');
         $batches = $db->exec('DELETE FROM scan_batches');
-        $sequence = $db->prepare("DELETE FROM sqlite_sequence WHERE name IN ('scan_events', 'cup_status', 'scan_batches')");
+        $logs = $db->exec('DELETE FROM debug_logs');
+        $sequence = $db->prepare("DELETE FROM sqlite_sequence WHERE name IN ('scan_events', 'cup_status', 'scan_batches', 'debug_logs')");
         $sequence->execute();
         $db->commit();
     } catch (Throwable $exception) {
@@ -238,6 +301,7 @@ function resetDemoData(PDO $db): never
         'deleted_events' => $events,
         'deleted_cups' => $cups,
         'deleted_batches' => $batches,
+        'deleted_logs' => $logs,
     ]);
 }
 

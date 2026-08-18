@@ -34,7 +34,10 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -47,12 +50,15 @@ public final class MainActivity extends Activity {
     // herhaling 1 opnieuw na iedere callback. Zo komen tags continu binnen.
     private static final byte REALTIME_REPEAT = 0x01;
     private static final long SCAN_DURATION_MS = 4_000;
+    private static final long POWER_COMMAND_TIMEOUT_MS = 2_000;
     private static final byte MIN_OUTPUT_POWER_DBM = 18;
     private static final byte MAX_OUTPUT_POWER_DBM = 26;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Set<String> tags = new LinkedHashSet<>();
+    private final List<JSONObject> debugLogQueue = Collections.synchronizedList(new ArrayList<>());
     private final Handler scanTimer = new Handler(Looper.getMainLooper());
     private final Handler presentationTimer = new Handler(Looper.getMainLooper());
+    private final Handler powerTimer = new Handler(Looper.getMainLooper());
 
     private TextView status;
     private TextView liveTagsEmpty;
@@ -62,7 +68,6 @@ public final class MainActivity extends Activity {
     private RadioGroup direction;
     private LinearLayout liveTags;
     private RFIDHelper rfid;
-    private byte realtimeRepeat = REALTIME_REPEAT;
     private boolean scanRunning;
     private boolean scanActive;
     private boolean inventoryCompleted;
@@ -70,12 +75,15 @@ public final class MainActivity extends Activity {
     private boolean uploadStarted;
     private boolean uploadRunning;
     private byte requestedPowerDbm = MIN_OUTPUT_POWER_DBM;
+    private boolean debugUploadRunning;
 
     private final ReaderCall readerCall = new ReaderCall() {
         @Override public void onSuccess(byte command, DataParameter params) {
             Log.d(LOG_TAG, "RFID success command=" + command + " data=" + params);
-            if (command == CMD.SET_OUTPUT_POWER) {
+            debug("rfid_success", "command=" + command + " params=" + params);
+            if (command == CMD.SET_TEMPORARY_OUTPUT_POWER) {
                 runOnUiThread(() -> {
+                    powerTimer.removeCallbacksAndMessages(null);
                     powerSlider.setEnabled(!scanRunning && rfid != null);
                     setStatus("Vermogen ingesteld op " + requestedPowerDbm + " dBm", false);
                 });
@@ -91,6 +99,7 @@ public final class MainActivity extends Activity {
 
         @Override public void onTag(byte command, byte state, DataParameter tag) {
             if (!scanRunning) return;
+            debug("rfid_tag", "command=" + command + " state=" + state + " epc=" + tag.getString(ParamCts.TAG_EPC, ""));
             addTag(tag.getString(ParamCts.TAG_EPC, ""));
         }
 
@@ -108,12 +117,15 @@ public final class MainActivity extends Activity {
                 addLiveTag(trimmedEpc);
                 setStatus(count + " tag(s) gevonden…", false);
             });
+            debug("tag_added", "epc=" + trimmedEpc + " unique_count=" + tagCount);
         }
 
         @Override public void onFailed(byte command, byte errorCode, String message) {
             Log.e(LOG_TAG, "RFID failure command=" + command + " code=" + errorCode + " message=" + message);
-            if (command == CMD.SET_OUTPUT_POWER) {
+            debug("rfid_failed", "command=" + command + " error=0x" + String.format("%02X", errorCode & 0xFF) + " message=" + message);
+            if (command == CMD.SET_TEMPORARY_OUTPUT_POWER) {
                 runOnUiThread(() -> {
+                    powerTimer.removeCallbacksAndMessages(null);
                     powerSlider.setEnabled(!scanRunning && rfid != null);
                     setStatus("Vermogen kon niet worden ingesteld: " + rfidErrorMessage(errorCode), true);
                 });
@@ -145,8 +157,8 @@ public final class MainActivity extends Activity {
             rfid = RFIDManager.getInstance().getHelper();
             try {
                 int scanModel = rfid.getScanModel();
-                realtimeRepeat = repeatForScanModel(scanModel);
-                Log.i(LOG_TAG, "Connected RFID scan model=" + scanModel + " repeat=" + realtimeRepeat);
+                Log.i(LOG_TAG, "Connected RFID scan model=" + scanModel + " repeat=" + REALTIME_REPEAT);
+                debug("reader_connected", "model=" + scanModel + " repeat=" + REALTIME_REPEAT);
                 rfid.registerReaderCall(readerCall);
                 runOnUiThread(() -> {
                     scanButton.setEnabled(true);
@@ -181,6 +193,7 @@ public final class MainActivity extends Activity {
         RFIDManager.getInstance().disconnect();
         scanTimer.removeCallbacksAndMessages(null);
         presentationTimer.removeCallbacksAndMessages(null);
+        powerTimer.removeCallbacksAndMessages(null);
         network.shutdownNow();
         super.onDestroy();
     }
@@ -297,7 +310,9 @@ public final class MainActivity extends Activity {
         uploadStarted = false;
         uploadRunning = false;
         scanButton.setEnabled(false);
+        powerSlider.setEnabled(false);
         setStatus("RFID-tags zoeken…", false);
+        debug("scan_started", "direction=" + (direction.getCheckedRadioButtonId() == direction.getChildAt(0).getId() ? "in" : "out"));
         startRealtimeInventory();
         scanTimer.postDelayed(this::stopRealtimeInventory, SCAN_DURATION_MS);
         presentationTimer.postDelayed(this::beginUpload, SCAN_DURATION_MS);
@@ -306,10 +321,12 @@ public final class MainActivity extends Activity {
     private void startRealtimeInventory() {
         if (!scanRunning || rfid == null) return;
         try {
-            rfid.realTimeInventory(realtimeRepeat);
-            Log.d(LOG_TAG, "Starting realtime RFID inventory pass; repeat=" + realtimeRepeat);
+            rfid.realTimeInventory(REALTIME_REPEAT);
+            Log.d(LOG_TAG, "Starting realtime RFID inventory pass; repeat=" + REALTIME_REPEAT);
+            debug("realtime_inventory_started", "repeat=" + REALTIME_REPEAT);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not start RFID inventory", error);
+            debug("scan_start_failed", error.toString());
             failScan("Starten van scan mislukt: " + error.getMessage());
         }
     }
@@ -328,8 +345,10 @@ public final class MainActivity extends Activity {
         try {
             // Dit is ook het stopcommando dat de officiële Sunmi-demo gebruikt.
             rfid.inventory((byte) 0x01);
+            debug("scan_stopped", "unique_tags=" + tags.size());
         } catch (Exception error) {
             Log.w(LOG_TAG, "Could not send RFID stop command", error);
+            debug("scan_stop_failed", error.toString());
         }
         finishScanIfReady();
     }
@@ -395,29 +414,30 @@ public final class MainActivity extends Activity {
 
     private void applyOutputPower() {
         if (rfid == null) {
+            debug("power_skipped", "reader_not_ready requested=" + requestedPowerDbm);
             setStatus("RFID-lezer is nog niet gereed", true);
             return;
         }
         if (scanRunning) {
+            debug("power_skipped", "scan_running requested=" + requestedPowerDbm);
             setStatus("Vermogen kan niet tijdens een scan worden gewijzigd", true);
             return;
         }
         powerSlider.setEnabled(false);
         try {
-            rfid.setOutputAllPower(requestedPowerDbm);
+            debug("power_requested", "dbm=" + requestedPowerDbm);
+            rfid.setTemporaryOutputPower(requestedPowerDbm);
+            powerTimer.postDelayed(() -> {
+                powerSlider.setEnabled(!scanRunning && rfid != null);
+                setStatus("Geen bevestiging van de lezer; vermogen is mogelijk niet gewijzigd.", true);
+                debug("power_timeout", "dbm=" + requestedPowerDbm);
+            }, POWER_COMMAND_TIMEOUT_MS);
         } catch (Exception error) {
             Log.e(LOG_TAG, "Could not set RFID output power", error);
+            debug("power_exception", error.toString());
             powerSlider.setEnabled(true);
             setStatus("Vermogen kon niet worden ingesteld: " + error.getMessage(), true);
         }
-    }
-
-    private static byte repeatForScanModel(int scanModel) {
-        // Overgenomen uit ReadBaseFragment.kt van SunmiUHF.
-        if (scanModel == RFIDManager.UHF_S7100 || scanModel == RFIDManager.INNER_SIM3500) {
-            return 50;
-        }
-        return REALTIME_REPEAT;
     }
 
     private static String rfidErrorMessage(byte errorCode) {
@@ -477,6 +497,7 @@ public final class MainActivity extends Activity {
         final String endpoint = direction.getCheckedRadioButtonId() == direction.getChildAt(0).getId() ? "in" : "out";
         network.execute(() -> {
             try {
+                debug("scan_upload_started", "direction=" + endpoint + " tags=" + scannedTags.size());
                 JSONObject body = new JSONObject();
                 body.put("request_id", "sunmi-l3-" + UUID.randomUUID());
                 body.put("source", ApiConfig.SOURCE);
@@ -496,6 +517,7 @@ public final class MainActivity extends Activity {
                 int responseCode = connection.getResponseCode();
                 String response = readResponse(connection);
                 connection.disconnect();
+                debug("scan_upload_response", "http=" + responseCode + " body=" + response);
                 runOnUiThread(() -> {
                     uploadRunning = false;
                     if (responseCode >= 200 && responseCode < 300) {
@@ -506,6 +528,7 @@ public final class MainActivity extends Activity {
                     finishScanIfReady();
                 });
             } catch (Exception error) {
+                debug("scan_upload_exception", error.toString());
                 runOnUiThread(() -> {
                     uploadRunning = false;
                     setStatus("Versturen mislukt: " + error.getMessage(), true);
@@ -513,6 +536,59 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    private void debug(String event, String details) {
+        Log.i(LOG_TAG, "DEBUG " + event + " " + details);
+        try {
+            JSONObject entry = new JSONObject();
+            entry.put("event", event);
+            entry.put("details", details);
+            boolean startUpload = false;
+            synchronized (debugLogQueue) {
+                debugLogQueue.add(entry);
+                if (!debugUploadRunning) {
+                    debugUploadRunning = true;
+                    startUpload = true;
+                }
+            }
+            if (startUpload) network.execute(this::flushDebugLogs);
+        } catch (Exception ignored) {
+            // Logging mag de RFID-scan niet onderbreken.
+        }
+    }
+
+    private void flushDebugLogs() {
+        while (true) {
+            List<JSONObject> batch = new ArrayList<>();
+            synchronized (debugLogQueue) {
+                while (!debugLogQueue.isEmpty() && batch.size() < 100) batch.add(debugLogQueue.remove(0));
+                if (batch.isEmpty()) {
+                    debugUploadRunning = false;
+                    return;
+                }
+            }
+            try {
+                JSONObject body = new JSONObject();
+                body.put("source", ApiConfig.SOURCE);
+                JSONArray values = new JSONArray();
+                for (JSONObject entry : batch) values.put(entry);
+                body.put("logs", values);
+                HttpURLConnection connection = (HttpURLConnection) new URL(ApiConfig.BASE_URL + "/api/debug-logs").openConnection();
+                connection.setRequestMethod("POST");
+                connection.setConnectTimeout(4_000);
+                connection.setReadTimeout(6_000);
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setDoOutput(true);
+                try (OutputStream output = connection.getOutputStream()) {
+                    output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                connection.getResponseCode();
+                connection.disconnect();
+            } catch (Exception error) {
+                Log.w(LOG_TAG, "Could not upload debug logs", error);
+            }
+        }
     }
 
     private static String readResponse(HttpURLConnection connection) {
